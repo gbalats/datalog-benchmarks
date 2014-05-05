@@ -1,0 +1,8 @@
+// Non-optimized right transitive
+
+TransitiveEdge(?from,?to) <-
+   Edge(?from,?to).
+
+TransitiveEdge(?from,?to) <-
+   Edge(?from,?interm),
+   TransitiveEdge(?interm,?to).

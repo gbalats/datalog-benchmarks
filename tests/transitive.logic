@@ -1,0 +1,576 @@
+/*
+_result[] = count -> int[64](count). 
+_result[] = count <- agg<<count = count()>>(_TransitiveEdge(_,_)). 
+
+_Edge(?from,?to) <- CallGraphEdge(_,?fromSite,_,?to), Instruction:Method[?fromSite] = ?from. 
+// For Empty program, jre1.4, 1-obj, call graph has 14181 edges, 
+// 19126 nodes (including unreachable methods), 4291 reachable methods
+*/
+
+/*
+_TransitiveEdge(?from,?to) <- _Edge(?from,?to). 
+_TransitiveEdge(?from,?to) <- _Edge(?from,?interm), _TransitiveEdge(?interm,?to).
+//  7219473
+//  17.929u 0.648s 0:19.40 95.6%    0+0k 0+0io 2pf+0w
+*/
+
+/*
+_TransitiveEdge(?from,?to) <- _Edge(?from,?to). 
+_TransitiveEdge(?from,?to) <- _TransitiveEdge(?from,?interm), _Edge(?interm, ?to).
+//  7219473
+//  17.640u 0.435s 0:18.99 95.1%    0+0k 0+0io 2pf+0w
+*/
+
+/*
+// Equivalent with optimal indexing
+_TransitiveEdge(?to,?from) <- _Edge(?from,?to). 
+_TransitiveEdge(?to,?from) <- _Edge(?from,?interm), _TransitiveEdge(?to,?interm).
+//  7219473
+//  16.915u 0.516s 0:18.20 95.7%    0+0k 0+0io 2pf+0w
+*/
+
+/*
+// Optimal indexing because of auxiliary relation
+_InverseTransitiveEdge(?to,?from) <- _TransitiveEdge(?from,?to). 
+
+_TransitiveEdge(?from,?to) <- _Edge(?from,?to). 
+_TransitiveEdge(?from,?to) <- _Edge(?from,?interm), _InverseTransitiveEdge(?to,?interm).
+//  7219473
+//  32.112u 0.757s 0:36.96 88.9%    0+0k 0+0io 2pf+0w
+*/
+
+/*
+_TransitiveEdge(?from,?to) <- _Edge(?from,?to).
+_TransitiveEdge(?from,?to) <- _TransitiveEdge(?from,?interm), _TransitiveEdge(?interm, ?to).
+//  7219473
+//  2142.033u 0.804s 35:44.45 99.9% 0+0k 0+0io 2pf+0w
+*/
+
+/*
+// Equivalent with optimal indexing
+_InverseTransitiveEdge(?to,?from) <- _TransitiveEdge(?from,?to). 
+
+_TransitiveEdge(?from,?to) <- _Edge(?from,?to). 
+_TransitiveEdge(?from,?to) <- _TransitiveEdge(?from,?interm), _InverseTransitiveEdge(?to,?interm).
+//  WORSE THAN PREVIOUS: 48mins instead of 35
+*/
+
+
+
+// IMPORTANT: The assumption in all the logic below is that we don't care about reflective 
+// edges, i.e., we either assume that _TransitiveEdge(?from,?from) always holds or that 
+// it never does.
+
+/*
+// SCC Computations, BASED ON TRANSITIVE CLOSURE
+_Edge(?from,?to) <- CallGraphEdge(_,?fromSite,_,?to), Instruction:Method[?fromSite] = ?from. 
+// For Empty program, call graph has 14181 edges.
+_TransitiveEdge(?from,?to) <- _Edge(?from,?to). 
+_TransitiveEdge(?from,?to) <- _Edge(?from,?interm), _TransitiveEdge(?interm,?to).
+
+_InSameSCC(?n1,?n2) <- _TransitiveEdge(?n1,?n2), _TransitiveEdge(?n2,?n1). 
+_InSameSCC(?n1,?n1) <- MethodSignatureRef(?n1). 
+
+_result2[] = count -> int[64](count). 
+_result2[] = count <- agg<<count = count()>>(_InSameSCC(_,_)). 
+
+// [yannis@alpha doop]$ time bloxbatch -db last-analysis/ -query -file transitive.logic -print _result2
+//  2806360
+//  22.412u 0.644s 0:24.02 95.9%    0+0k 0+0io 2pf+0w
+
+_SCCRepresentativeOf[?n1] = m <- agg<<m = min(?n2)>>(_InSameSCC(?n1,?n2)).
+
+_EdgeBetweenSCCs(?from,?to) <-
+    _SCCRepresentativeOf[?n1] = ?from,
+    _SCCRepresentativeOf[?n2] = ?to,
+    ?from != ?to,
+    _Edge(?n1,?n2).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?to).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?interm),
+    ?from != ?to,
+    _TransitiveEdgeBetweenSCCs(?interm,?to).
+
+_result4[] = count -> int[64](count). 
+_result4[] = count <- agg<<count = count()>>(_TransitiveEdgeBetweenSCCs(_,_)). 
+// Full strongly connected components yield 
+//  2806360 intra-SCC edges
+//  574581  inter-SCC edges
+//  23.872u 0.739s 0:26.27 93.6%    0+0k 0+0io 2pf+0w
+*/
+
+/*
+// SCC Computations, WITHOUT TRANSITIVE CLOSURE
+_Edge(?from,?to) <- CallGraphEdge(_,?fromSite,_,?to), Instruction:Method[?fromSite] = ?from. 
+
+_TransitiveEdge2(?n1,?n2) <- _Edge(?n1,?n3), _Edge(?n3,?n2).
+_TransitiveEdge3(?n1,?n2) <- _Edge(?n1,?n3), _TransitiveEdge2(?n3,?n2).
+_TransitiveEdge4(?n1,?n2) <- _Edge(?n1,?n3), _TransitiveEdge3(?n3,?n2).
+_TransitiveEdge5(?n1,?n2) <- _Edge(?n1,?n3), _TransitiveEdge4(?n3,?n2).
+_TransitiveEdge6(?n1,?n2) <- _Edge(?n1,?n3), _TransitiveEdge5(?n3,?n2).
+_TransitiveEdge7(?n1,?n2) <- _Edge(?n1,?n3), _TransitiveEdge6(?n3,?n2).
+_TransitiveEdge8(?n1,?n2) <- _Edge(?n1,?n3), _TransitiveEdge7(?n3,?n2).
+_TransitiveEdgeUpTo8(?n1,?n2) <- 
+   _Edge(?n1,?n2) ; _TransitiveEdge2(?n1,?n2) ; _TransitiveEdge3(?n1,?n2) ; 
+   _TransitiveEdge4(?n1,?n2) ; _TransitiveEdge5(?n1,?n2) ; _TransitiveEdge6(?n1,?n2) ; 
+   _TransitiveEdge7(?n1,?n2) ; _TransitiveEdge8(?n1,?n2).
+
+_InSameSCC(?n1,?n1) <- MethodSignatureRef(?n1).
+_InSameSCC(?n1,?n2) <- _TransitiveEdgeUpTo8(?n1,?n2), _TransitiveEdgeUpTo8(?n2,?n1).
+
+// For cycles up to 16-long, the approximation yields:
+// 327578 intra-SCC edges
+// 1404081 inter-SCC edges
+// 2074336 transitive closure up-to-8 edges
+// 11.383u 0.368s 0:11.70 100.3%   0+0k 0+0io 2pf+0w
+
+_SCCRepresentativeOf[?n1] = m <- agg<<m = min(?n2)>>(_InSameSCC(?n1,?n2)).
+
+_EdgeBetweenSCCs(?from,?to) <-
+    _SCCRepresentativeOf[?n1] = ?from,
+    _SCCRepresentativeOf[?n2] = ?to,
+    ?from != ?to,
+    _Edge(?n1,?n2).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?to).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?interm),
+    ?from != ?to,
+    _TransitiveEdgeBetweenSCCs(?interm,?to).
+
+
+_result3[] = count -> int[64](count). 
+_result3[] = count <- agg<<count = count()>>(_InSameSCC(_,_)). 
+
+_result4[] = count -> int[64](count). 
+_result4[] = count <- agg<<count = count()>>(_TransitiveEdgeBetweenSCCs(_,_)). 
+
+_result5[] = count -> int[64](count). 
+_result5[] = count <- agg<<count = count()>>(_TransitiveEdgeUpTo8(_,_)). 
+
+//_IsSCCId(?id) <- _SCCId[_] = ?id.
+//_result6[] = count -> int[64](count). 
+//_result6[] = count <- agg<<count = count()>>(_IsSCCId(_)). 
+//// 17826 SCCs for Empty + JDK 1.4, 8093 edges between SCCs
+
+_InSameRealSCC(?n1,?n2) <- 
+   _SCCRepresentativeOf[?n1] = _SCCRepresentativeOf[?n2].
+_InSameRealSCC(?n1,?n2) <- 
+   _SCCRepresentativeOf[?n1] = ?rep1, _SCCRepresentativeOf[?n2] = ?rep2,
+   _TransitiveEdgeBetweenSCCs(?rep1,?rep2), _TransitiveEdgeBetweenSCCs(?rep2,?rep1).
+
+_result7[] = count -> int[64](count). 
+_result7[] = count <- agg<<count = count()>>(_InSameRealSCC(_,_)). 
+// 2806360
+// 14.243u 0.459s 0:14.73 99.7%    0+0k 0+0io 2pf+0w
+
+// This is only used for sanity checking the approximation.
+//   7217792 transitive edges, if self edges are removed, with both full and approximate approach
+//_TransitiveEdge(?from,?to) <- _SCCRepresentativeOf[?n1] = _SCCRepresentativeOf[?n2], ?from != ?to.
+//_TransitiveEdge(?from,?to) <- _SCCRepresentativeOf[?n1] = ?rep1, _SCCRepresentativeOf[?n2] = ?rep2,
+//      _TransitiveEdgeBetweenSCCs(?rep1,?rep2).
+//
+//_result[] = count -> int[64](count). 
+//_result[] = count <- agg<<count = count()>>(_TransitiveEdge(_,_)). 
+//
+////   Failed attempt to add back self-edges. Need to also add self edges that go through
+////   different SCCs, which is very expensive.
+////_TransitiveEdge(?from,?to) <- _UnderSCCId(?from, _SCCId[?to]), ?from != ?to.
+////_TransitiveEdge(?from,?from) <- _Edge(?from,?from).
+////_TransitiveEdge(?from,?from) <- _InSameSCC(?from,?something), ?something != ?from.
+////_TransitiveEdge(?from,?to) <- _UnderSCCId(?from,?fromId), _UnderSCCId(?to,?toId), _TransitiveEdgeBetweenSCCs(?fromId,?toId).
+*/
+
+
+/*
+// Applying everything to a context-sensitive callgraph.
+// 51769 Nodes, 276691 edges, 
+// 98339 intra-SCC edges --- this is not correct!!!
+// 225357497 inter-SCC edges
+// 52878344 transitive edges up to 8
+// The code below has to be added to the db permanently, using bloxbatch -addBlock.
+// The reason is the introduction of the new _Node entity.
+// 1189.051u 17.944s 20:50.39 96.5%        0+0k 0+0io 221pf+0w
+// 968.738 sec with fast TransitiveEdge8, 1169 sec with slow (total time above)
+// Full TransitiveEdge computation: 258252746 edges, 656.15 sec.
+// Full SCCs:
+//    60943741 inter-SCC edges
+//    20200181 intra-SCC edges
+//    1403.07 sec to compute (including full transitive closure)
+//   NO WIN
+_Node(x) -> .
+lang:entity(`_Node).
+lang:physical:storageModel[`_Node]="ScalableSparse".
+lang:physical:capacity[`_Node] = 1048576.
+
+_CreateNode[?ctx,?meth]=x -> HeapAllocationRef(?ctx), MethodSignatureRef(?meth), _Node(x).
+lang:skolem(`_CreateNode).
+
+_Node(?fromNode), _Node(?toNode), 
+_CreateNode[?ctxFrom,?from] = ?fromNode,
+_CreateNode[?ctxTo,?to] = ?toNode,
+_Edge(?fromNode,?toNode) <- CallGraphEdge(?ctxFrom,?fromSite,?ctxTo,?to), Instruction:Method[?fromSite] = ?from. 
+*/
+/*
+_TransitiveEdge2(?n1,?n2) <- $transitive:_Edge(?n1,?n3), $transitive:_Edge(?n3,?n2).
+_TransitiveEdge3(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge2(?n3,?n2).
+_TransitiveEdge4(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge3(?n3,?n2).
+_TransitiveEdge5(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge4(?n3,?n2).
+_TransitiveEdge6(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge5(?n3,?n2).
+_TransitiveEdge7(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge6(?n3,?n2).
+_TransitiveEdge8(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge7(?n3,?n2).
+_TransitiveEdgeUpTo8(?n1,?n2) <- 
+   $transitive:_Edge(?n1,?n2) ; _TransitiveEdge2(?n1,?n2) ; _TransitiveEdge3(?n1,?n2) ; 
+   _TransitiveEdge4(?n1,?n2) ; _TransitiveEdge5(?n1,?n2) ; _TransitiveEdge6(?n1,?n2).
+   _TransitiveEdge7(?n1,?n2) ; _TransitiveEdge8(?n1,?n2).
+
+_InSameSCCTemp(?n1,?n2) <- _TransitiveEdgeUpTo8(?n1,?n2), _TransitiveEdgeUpTo8(?n2,?n1).
+
+_InSameSCC(?n1,?n1) <- $transitive:_Node(?n1). 
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?n2).
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?nInterm), _InSameSCC(?nInterm,?n2).
+
+_result3[] = count -> int[64](count). 
+_result3[] = count <- agg<<count = count()>>(_InSameSCC(_,_)). 
+
+_SCCRepresentativeOf[?n1] = m <- agg<<m = min(?n2)>>(_InSameSCC(?n1,?n2)).
+
+_EdgeBetweenSCCs(?from,?to) <-
+    _SCCRepresentativeOf[?n1] = ?from,
+    _SCCRepresentativeOf[?n2] = ?to,
+    ?from != ?to,
+    $transitive:_Edge(?n1,?n2).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?to).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?interm),
+    ?from != ?to,
+    _TransitiveEdgeBetweenSCCs(?interm,?to).
+
+_result4[] = count -> int[64](count). 
+_result4[] = count <- agg<<count = count()>>(_TransitiveEdgeBetweenSCCs(_,_)). 
+
+_result5[] = count -> int[64](count). 
+_result5[] = count <- agg<<count = count()>>(_TransitiveEdgeUpTo8(_,_)). 
+*/
+
+
+
+// Full TransitiveEdge computation: 
+//    258252746 edges, 656.15 sec.
+// Full SCCs:
+//    60943741 inter-SCC edges
+//          1272.76 sec to compute just that
+//    20200181 intra-SCC edges
+//    1403.07 sec to compute (including full transitive closure)
+
+_TransitiveEdge(?from,?to) <- $transitive:_Edge(?from,?to). 
+_TransitiveEdge(?from,?to) <- $transitive:_Edge(?from,?interm), _TransitiveEdge(?interm,?to).
+
+_result[] = count -> int[64](count). 
+_result[] = count <- agg<<count = count()>>(_TransitiveEdge(_,_)).
+
+_InSameSCC(?n1,?n2) <- _TransitiveEdge(?n1,?n2), _TransitiveEdge(?n2,?n1). 
+_InSameSCC(?n1,?n1) <- $transitive:_Node(?n1). 
+
+_result3[] = count -> int[64](count). 
+_result3[] = count <- agg<<count = count()>>(_InSameSCC(_,_)). 
+
+_SCCRepresentativeOf[?n1] = m <- agg<<m = min(?n2)>>(_InSameSCC(?n1,?n2)).
+
+_EdgeBetweenSCCs(?from,?to) <-
+    _SCCRepresentativeOf[?n1] = ?from,
+    _SCCRepresentativeOf[?n2] = ?to,
+    ?from != ?to,
+    $transitive:_Edge(?n1,?n2).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?to).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?interm),
+    ?from != ?to,
+    _TransitiveEdgeBetweenSCCs(?interm,?to).
+
+_result4[] = count -> int[64](count). 
+_result4[] = count <- agg<<count = count()>>(_TransitiveEdgeBetweenSCCs(_,_)). 
+/*
+*/
+
+
+/*
+// Spanning forests and other spanning structures.
+
+//// Simple, practically vacuous spanning forest
+//_SelfOrParent(?n,?n) <- MethodSignatureRef(?n).
+//_SelfOrParent(?n,?nPar) <- _Edge(?nPar,?n).
+//_UpSpanningTreeParent[?n1] = m <- agg<<m = min(?n2)>>(_SelfOrParent(?n1,?n2)).
+//// A parent in the Up spanning tree is guaranteed to point to the child in original graph
+
+// The way to turn any set of spanning walks into a spanning forest is to also include
+// the node itself as a potential "next" node in a walk and to have some criterion
+// for picking "next" that is well-founded (always shrinks).
+
+// How many nodes does ?n point to?
+_NumberOfChildren[?n] = i <- agg<<i = count()>>($transitive:_Edge(?n,_)).
+
+// How many nodes do nodes that ?n points to point to?
+_ChildrenForSomeChild(?n,?i) <-
+   $transitive:_Edge(?n,?nChi), _NumberOfChildren[?nChi] = ?i.
+
+// What's the maximum number of children of ?n's children ?
+_MaxChildrenForSomeChild[?n] = m <- agg<<m = max(?iChi)>>(_ChildrenForSomeChild(?n,?iChi)).
+
+// Which nodes (may be more than one) that ?n points to have a maximum number of children?
+_ChildrenWithMaxChildren(?n,?nChi) <- 
+   $transitive:_Edge(?n,?nChi), _NumberOfChildren[?nChi] = _MaxChildrenForSomeChild[?n].
+
+// Pick an arbitrary (min node value) child node with max number of children.
+_SomeChildWithMaxChildren[?n] = m <-
+   agg<<m = min(?nChi)>>(_ChildrenWithMaxChildren(?n,?nChi)).
+
+_MinValueWalk[?n] = m <- agg<<m = min(?n2)>>($transitive:_Edge(?n,?n2)).
+_MaxValueWalk[?n] = m <- agg<<m = max(?n2)>>($transitive:_Edge(?n,?n2)).
+_MinValueBackWalk[?n] = m <- agg<<m = min(?n2)>>($transitive:_Edge(?n2,?n)).
+_MaxValueBackWalk[?n] = m <- agg<<m = max(?n2)>>($transitive:_Edge(?n2,?n)).
+
+//_Edge2(?n1,?n2) <- _SomeChildWithMaxChildren[?n1] = ?n2.
+    // _ChildrenWithMaxChildren(?n1,?n2).
+//_Edge2(?n1,?n2) <- _MinValueWalk[?n1] = ?n2.
+_Edge2(?n1,?n2) <- _MaxValueWalk[?n1] = ?n2.
+ 
+//_Edge2(?n1,?n2) <- $transitive:_Edge(?n1,?n2), _NumberOfChildren[?n2] < 3.
+
+
+//_Edge2(?n1,?n2) <- _MinValueBackWalk[?n2] = ?n1.
+_Edge2(?n1,?n2) <- _MaxValueBackWalk[?n2] = ?n1.
+
+_WalkTransitiveEdge(?from,?to) <- _Edge2(?from,?to).
+_WalkTransitiveEdge(?from,?to) <- _Edge2(?from,?interm), _WalkTransitiveEdge(?interm,?to).
+
+_InSameSCCTemp(?n1,?n2) <- _WalkTransitiveEdge(?n1,?n2), $transitive:_Edge(?n2,?n1). 
+_InSameSCCTemp(?n1,?n2) <- _InSameSCCTemp(?n2,?n1).
+
+// Full logic
+_InSameSCCTemp(?n1,?n2) <- _WalkTransitiveEdge(?n1,?n2), $transitive:_Edge(?n2,?n3), _WalkTransitiveEdge(?n3,?n1).
+// Underapproximate logic
+//_InSameSCCTemp(?n1,?n2) <- _WalkTransitiveEdge(?n1,?n2), _WalkTransitiveEdge(?n2,?n1).
+
+
+
+_Edge3(?n1,?n2) <- _MinValueWalk[?n1] = ?n2.
+_Edge3(?n1,?n2) <- _MinValueBackWalk[?n2] = ?n1.
+
+_WalkTransitiveEdge3(?from,?to) <- _Edge3(?from,?to).
+_WalkTransitiveEdge3(?from,?to) <- _Edge3(?from,?interm), _WalkTransitiveEdge3(?interm,?to).
+
+_InSameSCCTemp3(?n1,?n2) <- _WalkTransitiveEdge3(?n1,?n2), $transitive:_Edge(?n2,?n1). 
+_InSameSCCTemp3(?n1,?n2) <- _InSameSCCTemp3(?n2,?n1).
+_InSameSCCTemp3(?n1,?n2) <- _WalkTransitiveEdge3(?n1,?n2), $transitive:_Edge(?n2,?n3), _WalkTransitiveEdge3(?n3,?n1).
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp3(?n1,?n2).
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp3(?n1,?nInterm), _InSameSCC(?nInterm,?n2).
+
+
+
+//_TransitiveEdge2(?n1,?n2) <- $transitive:_Edge(?n1,?n3), $transitive:_Edge(?n3,?n2).
+//_TransitiveEdge3(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge2(?n3,?n2).
+//_TransitiveEdge4(?n1,?n2) <- $transitive:_Edge(?n1,?n3), _TransitiveEdge3(?n3,?n2).
+//_TransitiveEdgeUpTo4(?n1,?n2) <- 
+//   $transitive:_Edge(?n1,?n2) ; _TransitiveEdge2(?n1,?n2) ; _TransitiveEdge3(?n1,?n2) ; 
+//   _TransitiveEdge4(?n1,?n2).
+//
+//_InSameSCCTemp2(?n1,?n2) <- _TransitiveEdgeUpTo4(?n1,?n2), _TransitiveEdgeUpTo4(?n2,?n1).
+//
+//_InSameSCC(?n1,?n2) <- _InSameSCCTemp2(?n1,?n2).
+//_InSameSCC(?n1,?n2) <- _InSameSCCTemp2(?n1,?nInterm), _InSameSCC(?nInterm,?n2).
+
+// Full logic
+_InSameSCC(?n1,?n1) <- $transitive:_Node(?n1). 
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?n2).
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?nInterm), _InSameSCC(?nInterm,?n2).
+
+// Underapproximate logic
+//_InSameSCC(?n1,?n1) <- $transitive:_Node(?n1). 
+//_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?n2).
+//_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?nInterm), _InSameSCCTemp(?nInterm,?n2).
+
+
+_result3[] = count -> int[64](count). 
+_result3[] = count <- agg<<count = count()>>(_InSameSCC(_,_)). 
+
+
+
+_SCCRepresentativeOf[?n1] = m <- agg<<m = min(?n2)>>(_InSameSCC(?n1,?n2)).
+
+_EdgeBetweenSCCs(?from,?to) <-
+    _SCCRepresentativeOf[?n1] = ?from,
+    _SCCRepresentativeOf[?n2] = ?to,
+    ?from != ?to,
+    $transitive:_Edge(?n1,?n2).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?to).
+
+_TransitiveEdgeBetweenSCCs(?from,?to) <- 
+    _EdgeBetweenSCCs(?from,?interm),
+    ?from != ?to,
+    _TransitiveEdgeBetweenSCCs(?interm,?to).
+
+_result4[] = count -> int[64](count).
+_result4[] = count <- agg<<count = count()>>(_TransitiveEdgeBetweenSCCs(_,_)).
+*/
+
+
+/* Current winner:
+// 466.752 sec
+// 159985386 inter-SCC edges
+// 4522951 intra-SCC edges
+//   add _Edge2(?n1,?n2) <- _ChildrenWithMaxChildren(?n1,?n2).
+//   and we get 7146435 intra-SCC but 491sec just to compute the intra-SCC
+_Edge2(?n1,?n2) <- _MaxValueWalk[?n1] = ?n2.
+_Edge2(?n1,?n2) <- _MaxValueBackWalk[?n2] = ?n1.
+
+_WalkTransitiveEdge(?from,?to) <- _Edge2(?from,?to).
+_WalkTransitiveEdge(?from,?to) <- _Edge2(?from,?interm), _WalkTransitiveEdge(?interm,?to).
+
+_InSameSCCTemp(?n1,?n2) <- _WalkTransitiveEdge(?n1,?n2), $transitive:_Edge(?n2,?n1). 
+_InSameSCCTemp(?n1,?n2) <- _InSameSCCTemp(?n2,?n1).
+_InSameSCCTemp(?n1,?n2) <- _WalkTransitiveEdge(?n1,?n2), $transitive:_Edge(?n2,?n3), _WalkTransitiveEdge(?n3,?n1).
+
+
+_Edge3(?n1,?n2) <- _MinValueWalk[?n1] = ?n2.
+_Edge3(?n1,?n2) <- _MinValueBackWalk[?n2] = ?n1.
+
+_WalkTransitiveEdge3(?from,?to) <- _Edge3(?from,?to).
+_WalkTransitiveEdge3(?from,?to) <- _Edge3(?from,?interm), _WalkTransitiveEdge3(?interm,?to).
+
+_InSameSCCTemp3(?n1,?n2) <- _WalkTransitiveEdge3(?n1,?n2), $transitive:_Edge(?n2,?n1). 
+_InSameSCCTemp3(?n1,?n2) <- _InSameSCCTemp3(?n2,?n1).
+_InSameSCCTemp3(?n1,?n2) <- _WalkTransitiveEdge3(?n1,?n2), $transitive:_Edge(?n2,?n3), _WalkTransitiveEdge3(?n3,?n1).
+
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp3(?n1,?n2).
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp3(?n1,?nInterm), _InSameSCC(?nInterm,?n2).
+
+_InSameSCC(?n1,?n1) <- $transitive:_Node(?n1). 
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?n2).
+_InSameSCC(?n1,?n2) <- _InSameSCCTemp(?n1,?nInterm), _InSameSCC(?nInterm,?n2).
+*/
+
+
+
+/* BEGINNINGS OF A STACK BASED DFS ALGORITHM
+_SelfOrNeighbor(?n,?n) <- $transitive:_Node(?n).
+_SelfOrNeighbor(?n,?nNei) <- $transitive:_Edge(?n,?nNei).
+_MinValueWalk[?n] = m <- agg<<m = min(?n2)>>(_SelfOrNeighbor(?n,?n2)).
+// Guaranteed to not go on forever. Ends in a self-loop
+
+_FirstNodeInWalk(?n) <- $transitive:_Node(?n), !_MinValueWalk[_] = ?n.
+_SomeFirstNodeInWalk[] = m <-
+   agg<<m = max(?n)>>(_FirstNodeInWalk(?n)).
+
+// Simple experiment: a stack that is pushed all the way, then popped
+_StackHead[0] = ?node, _NextNode[?node] = ?node, _LimitHead[0] = 1 <- 
+    _SomeFirstNodeInWalk[] = ?node.
+_StackHead[?t+1] = ?node, _NextNode[?node] = ?curNode, _LimitHead[?t+1] = ?t+2 <- 
+    _StackHead[?t] = ?curNode, _MinValueWalk[?curNode] = ?node, ?curNode != ?node, _LimitHead[?t] = ?t+1.
+_LimitHead[?t+1] = _LimitHead[?t], _StackHead[?t+1] = ?node <- 
+    _StackHead[?t] = ?curNode, _MinValueWalk[?curNode] = ?curNode, _NextNode[?curNode] = ?node.
+
+_StackHead[?t+1] = ?node, _LimitHead[?t+1] = _LimitHead[?t] <- 
+    ?t > _LimitHead[?t], _StackHead[?t] = ?curNode, _NextNode[?curNode] = ?node, ?curNode != ?node.
+
+*/
+
+
+/*
+// CODE NO LONGER USED
+
+//// Initially tried defining the transitive closure on SCC Ids instead of
+//// nodes. This made performance very unpredictable, because of string
+//// operations. E.g., code below:
+//// 31.695u 1.273s 0:34.04 96.8%    0+0k 0+0io 2pf+0w
+//// while when inverting the code for optimal indexing:
+//// 3113.582u 1.732s 51:57.21 99.9% 0+0k 0+0io 2pf+0w
+//_EdgeBetweenSCCs(?fromId,?toId) <-
+//    _SCCId[?n1] = ?fromId,
+//    _SCCId[?n2] = ?toId,
+//    ?fromId != ?toId,
+//    _Edge(?n1,?n2).
+//
+//_TransitiveEdgeBetweenSCCs(?fromId,?toId) <- 
+//    _EdgeBetweenSCCs(?fromId,?toId).
+//
+//_TransitiveEdgeBetweenSCCs(?fromId,?toId) <- 
+//    _EdgeBetweenSCCs(?fromId,?intermId),
+//    ?fromId != ?toId,
+//    _TransitiveEdgeBetweenSCCs(?intermId,?toId).
+
+
+
+// Not as fast as what I'm using now
+_TransitiveEdgeUpTo2(?n1,?n2) <- _Edge(?n1,?n2).
+_TransitiveEdgeUpTo2(?n1,?n2) <- _Edge(?n1,?n3), _Edge(?n3,?n2).
+_TransitiveEdgeUpTo4(?n1,?n2) <- _TransitiveEdgeUpTo2(?n1,?n2).
+_TransitiveEdgeUpTo4(?n1,?n2) <- _TransitiveEdgeUpTo2(?n1,?n3), _TransitiveEdgeUpTo2(?n3,?n2).
+_TransitiveEdgeUpTo8(?n1,?n2) <- _TransitiveEdgeUpTo4(?n1,?n2).
+_TransitiveEdgeUpTo8(?n1,?n2) <- _TransitiveEdgeUpTo4(?n1,?n3), _TransitiveEdgeUpTo4(?n3,?n2).
+_InSameSCC(?n1,?n1) <- MethodSignatureRef(?n1).
+_InSameSCC(?n1,?n2) <- _TransitiveEdgeUpTo8(?n1,?n2), _TransitiveEdgeUpTo8(?n2,?n1).
+
+
+
+// Hopelessly slow. Maybe with better indexing.
+//_TransitiveEdgeUpTo(1,?from,?to) <- $transitive:_Edge(?from,?to). 
+//_TransitiveEdgeUpTo(n+1,?from,?to) <- $transitive:_Edge(?from,?interm), _TransitiveEdgeUpTo(n,?interm,?to), n < 13.
+
+
+
+_InSameSCC7(?n1,?n1) <- MethodSignatureRef(?n1).
+_InSameSCC7(?n1,?n2) <- _InSameSCC7(?n2,?n1).
+_InSameSCC7(?n1,?n2) <- _Edge(?n1,?n2), _Edge(?n2,?n1).
+_InSameSCC7(?n1,?n2), _InSameSCC7(?n1,?n3), _InSameSCC7(?n2,?n3) <- 
+   _Edge(?n1,?n2), _Edge(?n2,?n3), _Edge(?n3,?n1).
+_InSameSCC7(?n1,?n2), _InSameSCC7(?n1,?n3), _InSameSCC7(?n2,?n3), 
+_InSameSCC7(?n1,?n4), _InSameSCC7(?n2,?n4), _InSameSCC7(?n3, ?n4) <- 
+   _Edge(?n1,?n2), _Edge(?n2, ?n3), _Edge(?n3,?n4), _Edge(?n4,?n1).
+_InSameSCC7(?n1,?n2), _InSameSCC7(?n1,?n3), _InSameSCC7(?n2,?n3), 
+_InSameSCC7(?n1,?n4), _InSameSCC7(?n2,?n4), _InSameSCC7(?n3, ?n4),
+_InSameSCC7(?n1,?n5), _InSameSCC7(?n2,?n5), _InSameSCC7(?n3, ?n5), _InSameSCC7(?n4, ?n5)
+ <- 
+   _Edge(?n1,?n2), _Edge(?n2, ?n3), _Edge(?n3,?n4), _Edge(?n4,?n5), _Edge(?n5,?n1).
+
+_InSameSCC7(?n1,?n2), _InSameSCC7(?n1,?n3), _InSameSCC7(?n2,?n3), 
+_InSameSCC7(?n1,?n4), _InSameSCC7(?n2,?n4), _InSameSCC7(?n3, ?n4),
+_InSameSCC7(?n1,?n5), _InSameSCC7(?n2,?n5), _InSameSCC7(?n3, ?n5), _InSameSCC7(?n4, ?n5),
+_InSameSCC7(?n1,?n6), _InSameSCC7(?n2,?n6), _InSameSCC7(?n3, ?n6), _InSameSCC7(?n4, ?n6), _InSameSCC7(?n5,?n6)
+ <- 
+   _Edge(?n1,?n2), _Edge(?n2, ?n3), _Edge(?n3,?n4), _Edge(?n4,?n5), _Edge(?n5,?n6), _Edge(?n6,?n1).
+
+_InSameSCC7(?n1,?n2), _InSameSCC7(?n1,?n3), _InSameSCC7(?n2,?n3), 
+_InSameSCC7(?n1,?n4), _InSameSCC7(?n2,?n4), _InSameSCC7(?n3, ?n4),
+_InSameSCC7(?n1,?n5), _InSameSCC7(?n2,?n5), _InSameSCC7(?n3, ?n5), _InSameSCC7(?n4, ?n5),
+_InSameSCC7(?n1,?n6), _InSameSCC7(?n2,?n6), _InSameSCC7(?n3, ?n6), _InSameSCC7(?n4, ?n6), _InSameSCC7(?n5,?n6),
+_InSameSCC7(?n1,?n7), _InSameSCC7(?n2,?n7), _InSameSCC7(?n3, ?n7), _InSameSCC7(?n4, ?n7), _InSameSCC7(?n5,?n7), _InSameSCC7(?n6,?n7)
+ <- 
+   _Edge(?n1,?n2), _Edge(?n2, ?n3), _Edge(?n3,?n4), _Edge(?n4,?n5), _Edge(?n5,?n6), _Edge(?n6,?n7), _Edge(?n7,?n1).
+
+// For cycles up to 4, the approximation yields:
+// 20402 intra-SCC edges
+// 6421431 inter-SCC edges
+// 117.552u 5.535s 2:09.18 95.2%   0+0k 0+0io 2pf+0w
+//
+// For cycles up to 6, the approximation yields:
+// 26782 intra-SCC edges
+// 5524253 inter-SCC edges
+
+// Let's compose it with itself for even more edges
+_InSameSCC(?n1,?n2) <- _InSameSCC7(?n1,?n3), _InSameSCC7(?n3,?n2).
+
+*/
