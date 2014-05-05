@@ -13,6 +13,7 @@ vpath %.csv data/
 $(datadir):
 	$(MKDIR) $@
 
+
 #============================
 # Benchmark Template
 #============================
@@ -22,7 +23,7 @@ define benchmark_template
 $1.csv    := $(datadir)/edges-$1.csv
 $1.db     := $(dbdir)/$1-graph
 $1.script := script-$1.import
-
+$1.tests  := $(tests:tests/%.logic=$1-test.%)
 
 #-------------------------------------
 #  Generate import scripts
@@ -53,6 +54,11 @@ $$($1.db).ph: $$($1.script) | $(datadir)
 
 .PHONY: $1-test.setup
 $1-test.setup: $$($1.db).ph
+
+.PHONY: $$($1.tests)
+$$($1.tests): $1-test.%: tests/%.logic $$($1-test.setup)
+	time -p bloxbatch -db $$($1.db)/ -addBlock -file $$<
+	bloxbatch -db $$($1.db)/ -removeBlock $$*
 
 .PHONY: $1-test.clean
 $1-test.clean:
