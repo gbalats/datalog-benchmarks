@@ -1,0 +1,8 @@
+// Equivalent to right indexing, with optimal indexing
+
+TransitiveEdge(?to, ?from) <-
+   Edge(?from,?to).
+
+TransitiveEdge(?to, ?from) <-
+   Edge(?from,?interm),
+   TransitiveEdge(?to, ?interm).
