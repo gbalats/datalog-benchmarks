@@ -1,5 +1,6 @@
 MKDIR    := mkdir
 RM       := rm -f
+QUIET    := @
 
 datadir  := data
 dbdir    := db
@@ -23,7 +24,7 @@ define benchmark_template
 $1.csv    := $(datadir)/edges-$1.csv
 $1.db     := $(dbdir)/$1-graph
 $1.script := script-$1.import
-$1.tests  := $(tests:tests/%.logic=$1-test.%)
+$1.tests  := $(tests:tests/%.logic=$1-graph.%)
 
 #-------------------------------------
 #  Generate import scripts
@@ -45,23 +46,27 @@ $$($1.db).ph: $$($1.script) | $(datadir)
 	bloxbatch -db $$($1.db)/ -create -overwrite
 	bloxbatch -db $$($1.db)/ -addBlock -file $(schema)
 	bloxbatch -db $$($1.db)/ -import $$<
-	@touch $$@
+	$(QUIET) touch $$@
 
 
 #-------------------------------------------
 #  Phony targets for testing and cleaning
 #-------------------------------------------
 
-.PHONY: $1-test.setup
-$1-test.setup: $$($1.db).ph
+.PHONY: $1-graph.setup
+$1-graph.setup: $$($1.db).ph
 
 .PHONY: $$($1.tests)
-$$($1.tests): $1-test.%: tests/%.logic $$($1-test.setup)
-	time -p bloxbatch -db $$($1.db)/ -addBlock -file $$<
-	bloxbatch -db $$($1.db)/ -removeBlock $$*
+$$($1.tests): $1-graph.%: tests/%.logic $1-graph.setup
+	@printf "Running test %-24s ... " $$*
+	$(QUIET) time -f "elapsed time: %e sec" bloxbatch -db $$($1.db)/ -addBlock -file $$<
+	$(QUIET) bloxbatch -db $$($1.db)/ -removeBlock $$*
 
-.PHONY: $1-test.clean
-$1-test.clean:
+.PHONY: $1-graph.test
+$1-graph.test: $$($1.tests)
+
+.PHONY: $1-graph.clean
+$1-graph.clean:
 	$(RM) -r $$($1.db)/
 	$(RM) $$($1.db).ph
 
