@@ -1,6 +1,7 @@
 MKDIR    := mkdir
 TIME     := /usr/bin/time
 RM       := rm -f
+M4       := m4
 QUIET    := @
 
 datadir  := data
@@ -24,8 +25,9 @@ define benchmark_template
 
 $1.csv    := $(datadir)/edges-$1.csv
 $1.db     := $(dbdir)/$1-graph
-$1.script := script-$1.import
+$1.script := script-$1.logic
 $1.tests  := $(tests:tests/%.logic=$1-graph.%)
+
 
 #-------------------------------------
 #  Generate import scripts
@@ -33,10 +35,7 @@ $1.tests  := $(tests:tests/%.logic=$1-graph.%)
 
 .INTERMEDIATE: $$($1.script)
 $$($1.script): $$($1.csv)
-	@echo "option,delimiter,\"	\"" > $$@
-	@echo "option,hasColumnNames,false" >> $$@
-	@echo "fromFile,\"$$(abspath $$<)\",column:1,node:1,column:2,node:2" >> $$@
-	@echo "toPredicate,Edge,node:1,node:2" >> $$@
+	$(M4) --define=FILENAME=$$< import-template.logic > $$@
 
 
 #-------------------------------------
@@ -44,9 +43,9 @@ $$($1.script): $$($1.csv)
 #-------------------------------------
 
 $$($1.db).ph: $$($1.script) | $(dbdir)
-	bloxbatch -db $$($1.db)/ -create -overwrite
-	bloxbatch -db $$($1.db)/ -addBlock -file $(schema)
-	bloxbatch -db $$($1.db)/ -import $$<
+	lb create $$($1.db) --overwrite
+	lb addblock $$($1.db) -f $(schema)
+	lb exec $$($1.db) -f $$<
 	$(QUIET) touch $$@
 
 
@@ -60,15 +59,15 @@ $1-graph.setup: $$($1.db).ph
 .PHONY: $$($1.tests)
 $$($1.tests): $1-graph.%: tests/%.logic $1-graph.setup
 	@printf "Running test %-24s ... " $$*
-	$(QUIET) $(TIME) -f "elapsed time: %e sec" bloxbatch -db $$($1.db)/ -addBlock -file $$<
-	$(QUIET) bloxbatch -db $$($1.db)/ -removeBlock $$*
+	$(QUIET) $(TIME) -f "elapsed time: %e sec" lb addblock $$($1.db) -f $$<
+	$(QUIET) lb removeblock $$($1.db) $$*
 
 .PHONY: $1-graph.test
 $1-graph.test: $$($1.tests)
 
 .PHONY: $1-graph.clean
 $1-graph.clean:
-	$(RM) -r $$($1.db)/
+	lb delete $$($1.db)
 	$(RM) $$($1.db).ph
 
 

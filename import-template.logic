@@ -1,0 +1,12 @@
+changequote({,})dnl
+_edges(?x; ?i, ?j) ->
+    int(?x), string(?i), string(?j).
+
+lang:physical:delimiter[`_edges] = "\t".
+lang:physical:filePath[`_edges]  = "FILENAME".
+
++Node(?from), +Node:id(?from:?i),
++Node(?to), +Node:id(?to:?j),
++Edge(?from,?to)
+ <-
+   _edges(_; ?i, ?j).
