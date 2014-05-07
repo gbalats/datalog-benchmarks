@@ -1,4 +1,5 @@
 MKDIR    := mkdir
+TIME     := /usr/bin/time
 RM       := rm -f
 QUIET    := @
 
@@ -11,7 +12,7 @@ tests    := $(wildcard tests/*.logic)
 vpath %.csv data/
 
 
-$(datadir):
+$(dbdir):
 	$(MKDIR) $@
 
 
@@ -42,7 +43,7 @@ $$($1.script): $$($1.csv)
 #  Create one workspace per dataset
 #-------------------------------------
 
-$$($1.db).ph: $$($1.script) | $(datadir)
+$$($1.db).ph: $$($1.script) | $(dbdir)
 	bloxbatch -db $$($1.db)/ -create -overwrite
 	bloxbatch -db $$($1.db)/ -addBlock -file $(schema)
 	bloxbatch -db $$($1.db)/ -import $$<
@@ -59,7 +60,7 @@ $1-graph.setup: $$($1.db).ph
 .PHONY: $$($1.tests)
 $$($1.tests): $1-graph.%: tests/%.logic $1-graph.setup
 	@printf "Running test %-24s ... " $$*
-	$(QUIET) time -f "elapsed time: %e sec" bloxbatch -db $$($1.db)/ -addBlock -file $$<
+	$(QUIET) $(TIME) -f "elapsed time: %e sec" bloxbatch -db $$($1.db)/ -addBlock -file $$<
 	$(QUIET) bloxbatch -db $$($1.db)/ -removeBlock $$*
 
 .PHONY: $1-graph.test
