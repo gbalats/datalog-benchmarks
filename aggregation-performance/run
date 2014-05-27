@@ -1,0 +1,11 @@
+#!/bin/bash
+
+DOMAIN='https://dl.dropboxusercontent.com/u/10930107'
+INPUT_FILE='input.csv.tar.gz'
+LIMIT=4000000
+
+if ! [ -f $INPUT_FILE ] ; then wget "$DOMAIN/$INPUT_FILE" -O $INPUT_FILE ; fi
+
+gunzip -c "$INPUT_FILE" | tail -n +5 | sed -r 's/[ \t]+/,/' | tr -d '\015' | awk '{print $0",1"}' | head -n $LIMIT > input.csv
+
+lb graph.lb
