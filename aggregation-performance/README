@@ -1,0 +1,28 @@
+The aggregation in this example shouldn't cause so great an overhead.
+The number of spath facts is the same with the number of path facts
+(i.e. each spath is the minimum path in a set of *one* path).
+
+
+Without aggregation
+./run
+------------- graph.lb -------------
+created workspace 'unique_workspace_2013-07-29-11-03-19'
+added block 'block_1Z1IXBWX'
+71.02720
+added block 'block_1Z1KQCQA'
+60.66128
+  40000000: path
+deleted workspace 'unique_workspace_2013-07-29-11-03-19'
+
+
+With aggregation
+./run
+------------- graph.lb -------------
+created workspace 'unique_workspace_2013-07-29-11-06-00'
+added block 'block_1Z1IXBWX'
+66.39351
+added block 'block_1Z1KSLWH'
+238.76719
+  40000000: path
+  40000000: spath
+deleted workspace 'unique_workspace_2013-07-29-11-06-00'

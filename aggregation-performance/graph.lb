@@ -1,0 +1,35 @@
+create --unique
+
+starttimer
+transaction
+	addblock <doc>
+		edge[x, y] = w -> int(x), int(y), int(w).
+
+		node(n) <- edge[n, _] = _ ; edge[_, n] = _.
+	</doc>
+
+	exec <doc>
+		lang:physical:filePath[`_csv] = "input.csv".
+
+		_csv(id; x, y, w)  -> int(id), int(x), int(y), int(w).
+		+edge[x, y] = w <- _csv(_; x, y, w).
+	</doc>
+commit
+elapsedtime
+
+starttimer
+transaction
+	addblock <doc>
+		lang:compiler:disableError:AGGREGATE_RECURSION[] = true.
+
+		path(s, t, w) <- edge[s, t] = w.
+
+		//spath[s, t] = minCost <- agg<<minCost = min(cost)>>( path(s, t, cost) ).
+	</doc>
+commit
+elapsedtime
+
+popcount --predicate path
+//popcount --predicate spath
+
+close --destroy
